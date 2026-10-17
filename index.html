@@ -90,8 +90,13 @@ main.leaving > section { opacity: 0; transform: translateY(10px); transition: op
 .try-note.bad { color: var(--bad); }
 .field.shake { animation: shake 0.32s ease; border-color: var(--bad); }
 @keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
-#reveal.rise { animation: rise 0.35s ease 0.45s both; }
-@keyframes rise { from { opacity: 0; transform: translateY(16px); } }
+.locked { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 46px; animation: rise 0.25s ease both; }
+.locked .note { font: 600 1rem/1.3 var(--mono); color: var(--ink); }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+.answer-card h3 { font-size: 1.15rem; line-height: 1.25; }
+.ans-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.ans-word { font: 750 1.35rem/1.2 var(--display); overflow-wrap: anywhere; min-width: 0; }
+.sub-num { color: var(--muted); font-size: 0.85rem; }
 @media (max-width: 520px) { .wide-only { display: none; } }
 
 /* Shared pieces */
@@ -294,7 +299,7 @@ td .sub { display: block; font-size: 0.8rem; color: var(--muted); }
       <span class="eyebrow" id="pass-eyebrow">Pass the device to</span>
       <div class="who" id="pass-who"></div>
       <p class="note">No peeking at the screen until it's your turn.</p>
-      <button class="btn primary" id="pass-go" type="button">Show my prompt</button>
+      <button class="btn primary" id="pass-go" type="button">Start my dive</button>
     </section>
 
     <!-- Play one prompt -->
@@ -327,54 +332,10 @@ td .sub { display: block; font-size: 0.8rem; color: var(--muted); }
         </div>
       </form>
 
-      <div class="card" id="reveal" hidden aria-live="polite">
-        <div class="verdict">
-          <div class="stack" style="gap:8px;min-width:0">
-            <span id="verdict-pill" class="pill"></span>
-            <span class="said" id="said"></span>
-          </div>
-          <span class="gain" id="gain"></span>
-        </div>
-        <p class="note" id="verdict-note"></p>
-        <p class="depth-line" id="depth-line"></p>
-        <div class="row" id="appeal" hidden>
-          <button class="btn small" id="appeal-yes" type="button">It counts</button>
-          <button class="btn small quiet" id="appeal-no" type="button">Fair, it doesn't</button>
-        </div>
-        <div class="hist" id="reveal-hist"></div>
-        <div class="lists">
-          <p><span class="eyebrow">Most people say</span><br><span id="most"></span></p>
-          <p><span class="eyebrow">Deep cuts</span><br><span id="deep"></span></p>
-        </div>
-        <div class="row"><button class="btn primary" id="next" type="button">Next prompt</button></div>
+      <div class="locked" id="locked" hidden aria-live="polite">
+        <span class="pill" id="locked-pill"></span>
+        <span class="note" id="locked-text"></span>
       </div>
-    </section>
-
-    <!-- Party reveal for one prompt -->
-    <section id="party-reveal" class="stack" hidden>
-      <div class="stack" style="gap:6px">
-        <span class="eyebrow" id="pr-count"></span>
-        <h2 id="pr-prompt"></h2>
-      </div>
-      <div class="card">
-        <div class="tablewrap">
-          <table>
-            <thead><tr><th>Player</th><th>Answer</th><th class="num">Points</th></tr></thead>
-            <tbody id="pr-rows"></tbody>
-          </table>
-        </div>
-        <p class="note" id="pr-note"></p>
-        <div class="lists">
-          <p><span class="eyebrow">Most people say</span><br><span id="pr-most"></span></p>
-          <p><span class="eyebrow">Deep cuts</span><br><span id="pr-deep"></span></p>
-        </div>
-      </div>
-      <div class="card">
-        <h3>Standings</h3>
-        <p class="depth-line" id="pr-depth"></p>
-        <div class="tablewrap"><table><tbody id="pr-standings"></tbody></table></div>
-      </div>
-      <div class="row"><button class="btn primary" id="pr-next" type="button">Next prompt</button></div>
     </section>
 
     <!-- End of sample -->
@@ -391,9 +352,12 @@ td .sub { display: block; font-size: 0.8rem; color: var(--muted); }
           <span class="note" id="copy-note" role="status"></span>
         </div>
       </div>
-      <div class="card">
-        <div class="tablewrap"><table id="sum-table"></table></div>
+      <div class="card" id="sum-standings-card" hidden>
+        <h3>Standings</h3>
+        <div class="tablewrap"><table><tbody id="sum-standings"></tbody></table></div>
       </div>
+      <h2 class="eyebrow" style="margin-top:8px">Every prompt</h2>
+      <div class="stack" id="sum-list"></div>
       <div class="row">
         <button class="btn primary" id="sum-next" type="button">Next sample</button>
         <button class="btn quiet" id="sum-home" type="button">Home</button>
@@ -735,10 +699,11 @@ const Depth = (() => {
   let W = 0, H = 0, ppm = 2, s = 1;
   let cam = 0, target = 0, vel = 0; // the camera follows the depth you've reached
   let dark = false, fade = 0; // fade: 0 shows the light-theme water, 1 the dark
-  let t = 0, last = 0, skip = false, dirty = true, shown = null, blurOn = false;
+  let t = 0, last = 0, dirty = true, shown = null, blurOn = false;
   const readouts = [];
   // The penguin: "boat", "jump" (boat to water), "swim", or "hop" (water to boat).
-  const P = { state: "boat", u: 0, pd: 0, vp: 0, tilt: 0, face: 1, wt: 0, wantBoat: true, done: null,
+  const P = { state: "boat", u: 0, pd: 0, vp: 0, tilt: 0, face: 1, wx: 0, wy: 0, dir: 1, turn: null, th0: 0, park: false,
+    wantBoat: true, done: null,
     prevY: null, from: null, x: 0, y: 0, level: 0, fx: 1, bubbleIn: 1 };
   let bubbles = [], drops = [], ripples = [];
 
@@ -1409,45 +1374,75 @@ const Depth = (() => {
       drawBoat(bx, by, tiltB, P.state === "boat", blink, wave);
     }
     const A = Math.min(W * 0.3, 280);
-    const swimX = W * 0.5 + A * Math.sin(P.wt * 0.11);
-    const swimVX = A * 0.11 * Math.cos(P.wt * 0.11);
-    const swimY = clamp((P.pd + UNDER - top) * ppm, H * 0.1, H * 0.93);
+    const depthY = clamp((P.pd + UNDER - top) * ppm, H * 0.1, H * 0.93); // where its depth puts it on screen
     const lamp = smooth(500, 1400, P.pd) * fade;
     const flap = Math.sin(t * (5 + Math.min(12, Math.abs(P.vp) * 0.004)));
-    let px = null, py = null, heading = [1, 0];
+    let px = null, py = null;
     if (P.state === "jump" || P.state === "hop") {
       const u = clamp(P.u);
       const path = P.state === "jump"
-        ? [stand, [stand[0] + 28 * s, stand[1] - 85 * s], [stand[0] + 72 * s, sy - 50 * s], [swimX, swimY]]
+        ? [stand, [stand[0] + 28 * s, stand[1] - 85 * s], [stand[0] + 72 * s, sy - 50 * s], [W * 0.5, depthY]]
         : [P.from, [P.from[0], sy + 40 * s], [stand[0] - 30 * s, sy - 110 * s], stand];
       [px, py] = bez(...path, u);
       const [nx, ny] = bez(...path, Math.min(1, u + 0.02));
-      heading = [nx - px, ny - py];
-      if (Math.hypot(...heading) > 0.01) {
-        if (Math.abs(heading[0]) > 0.3) P.face = heading[0] > 0 ? 1 : -1;
-        P.tilt = Math.atan2(heading[1], Math.abs(heading[0]));
+      if (Math.hypot(nx - px, ny - py) > 0.01) {
+        if (Math.abs(nx - px) > 0.3) P.face = nx > px ? 1 : -1;
+        P.tilt = Math.atan2(ny - py, Math.abs(nx - px));
       }
       if (P.prevY != null && (P.prevY - sy) * (py - sy) < 0) splash(px, sy);
       P.prevY = py;
       swimmer(px, py, P.face, P.tilt, 1, flap, false, 0, 1);
     } else if (P.state === "swim") {
-      px = swimX;
-      py = swimY;
-      if (Math.abs(swimVX) > 2) P.face = swimVX > 0 ? 1 : -1;
-      const want = clamp(Math.atan2(P.vp * ppm + Math.sin(t * 1.3) * 12, Math.max(Math.abs(swimVX), 45)), -1.35, 1.35);
-      P.tilt += (want - P.tilt) * Math.min(1, dt * 6);
-      const turn = clamp(Math.abs(swimVX) / 12, 0.25, 1);
-      const squash = 1 - (1 - turn) * Math.abs(Math.cos(P.tilt));
+      let vx, vy;
+      if (P.park) {
+        // Results: swim over to the right and wait there, facing them.
+        const gutter = (W - Math.min(W, 704)) / 2;
+        const gx = gutter >= 120 ? W - gutter / 2 : W - 44 * s;
+        const gy = gutter >= 120 ? H * 0.3 : H * 0.17;
+        const k = still.matches ? 1 : 1 - Math.exp(-dt * 2.4);
+        vx = (gx - P.x) * 2.4;
+        vy = (gy - P.y) * 2.4;
+        P.x += (gx - P.x) * k;
+        P.y += (gy - P.y) * k;
+        if (Math.hypot(vx, vy) < 25) { vx = -30; vy = Math.sin(t * 1.3) * 10; }
+        P.wx = P.x - W * 0.5;
+        P.wy = P.y - depthY;
+        P.dir = -1;
+        P.turn = null;
+      } else {
+        // Straight runs across the middle, turning with a loop at each end:
+        // up and over at the right, down and under at the left.
+        const v = 28 * s;
+        if (P.turn == null && P.dir * P.wx > A) { P.turn = 0; P.th0 = P.dir > 0 ? 0 : Math.PI; }
+        let th = P.dir > 0 ? 0 : Math.PI;
+        if (P.turn != null) {
+          P.turn += dt / 1.3;
+          th = P.th0 - Math.PI * Math.min(1, P.turn);
+          if (P.turn >= 1) { P.dir = -P.dir; P.turn = null; }
+        } else P.wy *= 1 - Math.min(1, dt * 1.2); // settle back to its depth between turns
+        const sp = P.turn != null ? v * 1.5 : v;
+        P.wx += Math.cos(th) * sp * dt;
+        P.wy += Math.sin(th) * sp * dt;
+        vx = Math.cos(th) * sp;
+        vy = Math.sin(th) * sp + Math.sin(t * 1.3) * 8;
+        P.x = W * 0.5 + P.wx;
+        P.y = clamp(depthY + P.wy, H * 0.08, H * 0.95);
+      }
+      vy += P.vp * ppm; // diving or rising points it down or up
+      P.face = vx >= 0 ? 1 : -1;
+      P.tilt = clamp(Math.atan2(vy, Math.abs(vx)), -1.5, 1.5);
+      px = P.x;
+      py = P.y;
       // Diving fast: faint copies trail behind, a motion blur.
       const trail = clamp(P.vp * ppm * 0.012, -40, 40);
       if (Math.abs(trail) > 4) {
         ctx.globalAlpha = 0.18;
-        for (let i = 3; i >= 1; i--) swimmer(px, py - trail * i, P.face, P.tilt, squash, flap, blink, 0, 1);
+        for (let i = 3; i >= 1; i--) swimmer(px, py - trail * i, P.face, P.tilt, 1, flap, blink, 0, 1);
         ctx.globalAlpha = 1;
       }
       const pop = P.fx < 1 ? 1 + 0.35 * Math.sin(Math.PI * P.fx) * (1 - P.fx) : 1;
       if (P.fx < 1) glow([255, 255, 255], px, py, 46 * s, 0.7 * (1 - P.fx));
-      swimmer(px, py, P.face, P.tilt, squash, flap, blink, lamp, pop);
+      swimmer(px, py, P.face, P.tilt, 1, flap, blink, lamp, pop);
     }
     if (px != null) {
       P.x = px;
@@ -1515,7 +1510,10 @@ const Depth = (() => {
   function startJump() {
     P.state = "jump";
     P.u = 0;
-    P.wt = 0;
+    P.wx = 0;
+    P.wy = 0;
+    P.dir = 1;
+    P.turn = null;
     P.prevY = null;
   }
   function landed() {
@@ -1573,7 +1571,6 @@ const Depth = (() => {
       P.u += dt / 0.9;
       if (P.u >= 1) P.state = "boat";
     } else if (P.state === "swim") {
-      P.wt += dt;
       if (P.wantBoat && cam < 2 && P.pd < 2) {
         P.state = "hop";
         P.u = 0;
@@ -1589,9 +1586,6 @@ const Depth = (() => {
     else if (blurOn) { cv.style.filter = ""; blurOn = false; }
 
     if (fade !== want) fade = want > fade ? Math.min(want, fade + dt / 0.6) : Math.max(want, fade - dt / 0.6);
-    const calm = vel === 0 && P.vp === 0 && P.fx >= 1 && P.state !== "jump" && P.state !== "hop"
-      && !bubbles.length && !drops.length && !ripples.length;
-    if (calm && (skip = !skip)) return; // drifting scenery only needs half the frames
     draw(dt);
   }
 
@@ -1652,6 +1646,11 @@ const Depth = (() => {
         setTimeout(landed, 1300); // in case frames stall, say in a background tab
       });
     },
+    // On the results screen the penguin waits at the right, out from behind the cards.
+    park(on) {
+      P.park = !!on;
+      dirty = true;
+    },
     // Back up to the surface and into the boat.
     home() {
       target = 0;
@@ -1661,24 +1660,27 @@ const Depth = (() => {
   };
 })();
 
-// Screens and game flow.
+// Screens and game flow. Each diver goes through all seven prompts without seeing
+// any answers; the results screen shows every prompt and answer at once.
 const $ = (id) => document.getElementById(id);
-const SCREENS = ["home", "settings", "party-setup", "pass", "play", "party-reveal", "summary"];
+const SCREENS = ["home", "settings", "party-setup", "pass", "play", "summary"];
+const NONE = { input: "", name: "", tier: null, pts: 0, how: "empty" };
 const S = {
   mode: null, // "solo" | "party"
   n: 0, // sample number, 0 for fresh prompts
   prompts: [],
-  i: 0,
-  results: [], // solo: one result per prompt. party: {answers: [result per player]}
-  players: [],
-  turn: 0,
-  totals: [],
-  pending: [], // party: each player's scored answer for the current prompt
+  players: [], // party: everyone's names, in diving order
+  p: 0, // whose dive it is
+  i: 0, // which prompt
+  runs: [], // one list per player: their result for each prompt
+  deepCuts: [], // picked once per game, so the results don't reshuffle
   tries: [], // answers already tried on this prompt that didn't count
   ask: null, // solo: an answer that isn't on the list, waiting for you to say whether it counts
+  late: false, // the clock ran out while that answer was waiting
   timerSec: store.get("timer", 25),
   busy: false,
   next: 0, // the sample the Play buttons offer: a random one each time the page opens
+  token: 0, // changes whenever a game starts or ends, so a stale timeout does nothing
 };
 
 function el(tag, cls, text) {
@@ -1690,6 +1692,7 @@ function el(tag, cls, text) {
 function show(id) {
   SCREENS.forEach((s) => { $(s).hidden = s !== id; });
   if (id === "home" || id === "settings" || id === "party-setup") Depth.home();
+  Depth.park(id === "summary");
   $("status").hidden = !(id === "play" || id === "pass");
   $("open-settings").hidden = id !== "home";
   window.scrollTo(0, 0);
@@ -1739,18 +1742,6 @@ function renderClaudeBits() {
     ? "Answers that aren't on the list get checked by Claude, who also estimates how rare they are."
     : "Answers that aren't on the list: you decide whether they count.";
 }
-function renderHist(box, cols, on) {
-  box.replaceChildren(...TIERS.map((t, i) => {
-    const col = el("div", "col" + (i === on ? " on" : ""));
-    const barbox = el("div", "barbox");
-    const bar = el("div", "bar");
-    bar.style.height = t.h + "%";
-    barbox.append(bar);
-    col.append(barbox, el("span", "lab", t.label), el("span", "pts", "+" + t.pts));
-    if (cols && cols[i]) col.append(el("span", "ex", cols[i]));
-    return col;
-  }));
-}
 
 // Timer
 let timer = null, timerLeft = 0, timerEnd = null;
@@ -1787,14 +1778,41 @@ function stopTimer() {
   timerLeft = 0;
 }
 
-// One prompt on screen
+// A game: one dive per player, seven prompts each.
+const runTotal = (pi = S.p) => S.runs[pi].reduce((sum, r) => sum + (r && r.how !== "ask" ? r.pts : 0), 0);
+
+function startGame(mode, n, prompts) {
+  const players = mode === "party" ? readPlayers() : ["You"];
+  const list = prompts || samplePrompts(n);
+  Object.assign(S, {
+    mode, n, prompts: list, players, p: 0, i: 0, runs: players.map(() => []),
+    deepCuts: list.map((p) => pick((p.t[4].length ? p.t[4] : p.t[3]).map((x) => x[0]), 3)),
+  });
+  S.token += 1;
+  if (mode === "party") showPass();
+  else { Depth.set(0); showPrompt(); }
+}
+// Party: hand over between dives. The penguin climbs back into the boat for the next diver.
+function showPass() {
+  stopTimer();
+  const prev = S.p > 0 ? S.players[S.p - 1] : null;
+  $("pass-eyebrow").textContent = prev ? `${prev} is back on the boat. Pass the device to` : "First diver";
+  $("pass-who").textContent = S.players[S.p];
+  $("pass-go").textContent = `I'm ${S.players[S.p]}, start my dive`;
+  $("status-sample").textContent = sampleLabel();
+  $("status-score").textContent = "0";
+  show("pass");
+  Depth.home();
+  $("pass-go").focus();
+}
+
 function renderPlot() {
   $("plot").replaceChildren(...S.prompts.map((_, i) => {
     const bar = el("i");
-    if (i < S.i) {
-      const pts = S.mode === "solo" ? S.results[i].pts : 50;
+    const r = S.runs[S.p][i];
+    if (r) {
       bar.className = "done";
-      bar.style.height = Math.max(4, Math.round((pts / 100) * 28)) + "px";
+      bar.style.height = Math.max(4, Math.round((r.pts / 100) * 28)) + "px";
     } else if (i === S.i) bar.className = "now";
     return bar;
   }));
@@ -1804,24 +1822,22 @@ function showPrompt() {
   $("cat").textContent = p.c;
   $("prompt").textContent = p.q;
   $("prompt-count").textContent = `Prompt ${S.i + 1} of ${PER}`;
-  $("answer-label").textContent = S.mode === "party" ? `Your answer, ${S.players[S.turn]}` : "Your answer";
+  $("answer-label").textContent = S.mode === "party" ? `Your answer, ${S.players[S.p]}` : "Your answer";
   $("status-sample").textContent = sampleLabel();
-  $("status-score").textContent = S.mode === "solo" ? soloTotal() : S.totals[S.turn];
+  $("status-score").textContent = runTotal();
   $("answer").value = "";
   $("answer").classList.remove("shake");
   setForm(true);
-  S.tries = [];
-  S.ask = null;
+  Object.assign(S, { tries: [], ask: null, late: false });
   tryNote("");
   $("ask-row").hidden = true;
   $("answer-form").hidden = false;
-  $("reveal").hidden = true;
+  $("locked").hidden = true;
   renderPlot();
   show("play");
   $("answer").focus();
   startTimer(timeUp);
 }
-const soloTotal = () => S.results.reduce((s, r) => s + (r ? r.pts : 0), 0);
 
 function setForm(on) {
   $("answer").disabled = !on;
@@ -1850,7 +1866,14 @@ function wrong(text) {
   input.classList.add("shake");
   input.focus();
 }
+function askCounts(text) {
+  tryNote(text);
+  $("ask-yes").textContent = `It counts (+${APPEAL_PTS})`;
+  $("ask-no").textContent = S.late ? "It doesn't" : "Try another";
+  $("ask-row").hidden = false;
+}
 
+// Wrong answers don't end the round: keep guessing until the time runs out.
 async function submitAnswer() {
   if (S.busy) return;
   const text = $("answer").value.trim();
@@ -1875,13 +1898,12 @@ async function submitAnswer() {
   if (r.how === "ask" && S.mode === "solo") {
     // Not on the list and no Claude to ask: you decide, while the clock keeps going.
     S.ask = r;
-    tryNote(`"${r.name}" isn't on our list. Does it really count?`);
-    $("ask-yes").textContent = `It counts (+${APPEAL_PTS})`;
-    $("ask-row").hidden = false;
     $("answer").value = "";
+    askCounts(`"${r.name}" isn't on our list. Does it really count?`);
     resumeTimer();
     return;
   }
+  // In a party, answers that aren't on the list are decided together at the end.
   lockIn(r);
 }
 
@@ -1901,28 +1923,50 @@ async function timeUp() {
     if ($("play").hidden || S.prompts[S.i] !== p) return;
     if (isWrong(r)) { S.tries.push(text); r = null; }
   }
-  r = r || S.ask || { input: "", name: "", tier: null, pts: 0, how: "empty" };
-  S.ask = null;
-  r.tries = S.tries.slice();
-  lockIn(r);
+  if (r && r.how !== "ask") { lockIn(r); return; }
+  if (S.mode === "solo" && (r || S.ask)) {
+    S.ask = r || S.ask;
+    S.late = true;
+    askCounts(`Time's up. Does "${S.ask.name}" really count?`);
+    $("ask-yes").focus();
+    return;
+  }
+  lockIn(r || { ...NONE, tries: S.tries.slice() });
 }
 function skip() {
   if (S.busy) return;
   if (S.ask) S.tries.push(S.ask.input);
-  S.ask = null;
-  lockIn({ input: "", name: "", tier: null, pts: 0, how: "skipped", tries: S.tries.slice() });
+  lockIn({ ...NONE, how: "skipped", tries: S.tries.slice() });
 }
+
+// Lock the answer in, dive, and move straight on: no answers are shown until the end.
 function lockIn(r) {
   stopTimer();
-  if (S.mode === "party") {
-    S.pending[S.turn] = r;
-    S.turn += 1;
-    if (S.turn < S.players.length) showPass(true);
-    else partyReveal();
-    return;
-  }
-  S.results[S.i] = r;
-  showReveal(r, true);
+  if (!r.tries) r.tries = S.tries.slice();
+  S.runs[S.p][S.i] = r;
+  S.ask = null;
+  setForm(false);
+  $("ask-row").hidden = true;
+  $("answer-form").hidden = true;
+  const v = verdictText(r);
+  const pill = $("locked-pill");
+  pill.textContent = v.pill;
+  pill.className = "pill" + (v.miss ? " miss" : v.self ? " self" : "");
+  $("locked-text").textContent = r.how === "ask"
+    ? "Locked in. You'll all decide at the end whether it counts."
+    : r.pts ? `+${r.pts} · down ${Depth.fmt(Depth.metres(r.pts))}` : "No dive this time.";
+  $("locked").hidden = false;
+  const total = runTotal();
+  $("status-score").textContent = total;
+  Depth.set(total);
+  renderPlot();
+  const token = S.token;
+  setTimeout(() => { if (S.token === token && !$("play").hidden) advance(); }, r.pts ? 1700 : 1100);
+}
+function advance() {
+  if (S.i < PER - 1) { S.i += 1; showPrompt(); return; }
+  if (S.mode === "party" && S.p < S.players.length - 1) { S.p += 1; S.i = 0; showPass(); return; }
+  finish();
 }
 
 function verdictText(r) {
@@ -1934,119 +1978,170 @@ function verdictText(r) {
     case "rule": return { pill: "Doesn't fit", note: "That answer doesn't match the rule in the prompt.", miss: true };
     case "empty": return { pill: "Time's up", note: triesNote(r) || "No answer, no points.", miss: true };
     case "skipped": return { pill: "Skipped", note: triesNote(r) || "No points this time.", miss: true };
-    case "ask": return { pill: "Not on our list", note: "Does it really fit the prompt? Be honest; you're only fooling yourself." };
+    case "ask": return { pill: "Not on our list", note: "" };
     case "appeal": return { pill: "Counted by you", note: `Answers you vouch for score ${APPEAL_PTS}.`, self: true };
     case "refused": return { pill: "Doesn't count", note: "You marked it as not fitting.", miss: true };
-    case "checking": return { pill: "Checking", note: "" };
     default: return { pill: "", note: "" };
   }
 }
-
 function triesNote(r) {
   const n = r.tries ? r.tries.length : 0;
   if (!n) return "";
   return n === 1 ? `"${r.tries[0]}" didn't count.` : `None of your ${n} tries counted.`;
 }
 
-function showReveal(r, fresh) {
-  const p = prep(S.prompts[S.i]);
-  const v = verdictText(r);
-  const pill = $("verdict-pill");
-  pill.textContent = v.pill;
-  pill.className = "pill" + (v.miss ? " miss" : v.self ? " self" : "");
-  const said = $("said");
-  said.replaceChildren();
-  const word = el("span", r.tier != null && r.tier >= 3 ? "hl" : "", r.name || "—");
-  said.append(word);
-  const gain = $("gain");
-  gain.textContent = r.how === "checking" || r.how === "ask" ? "" : "+" + r.pts;
-  gain.className = "gain" + (r.pts ? "" : " zero");
-  const note = $("verdict-note");
-  note.replaceChildren();
-  if (r.how === "checking") note.append(el("span", "thinking", "Checking with Claude"));
-  else note.textContent = v.note;
-  $("appeal").hidden = r.how !== "ask";
-  $("appeal-yes").textContent = `It counts (+${APPEAL_PTS})`;
-  renderHist($("reveal-hist"), null, r.tier);
-  $("most").textContent = p.t[0].map((n) => n[0]).join(", ") || "—";
-  const deepPool = (p.t[4].length ? p.t[4] : p.t[3]).map((n) => n[0]);
-  $("deep").textContent = pick(deepPool, 3, r.name).join(", ") || "—";
-  const last = S.i === PER - 1;
-  $("next").textContent = last ? "See results" : "Next prompt";
-  $("next").disabled = r.how === "checking" || r.how === "ask";
-  $("answer-form").hidden = true;
-  $("reveal").hidden = false;
-  if (fresh) {
-    // The card rises in a moment after the penguin starts its dive.
-    const card = $("reveal");
-    card.classList.remove("rise");
-    void card.offsetWidth;
-    card.classList.add("rise");
-  }
-  $("status-score").textContent = soloTotal();
-  const pending = r.how === "checking" || r.how === "ask";
-  if (!pending) Depth.set(soloTotal());
-  $("depth-line").textContent = pending ? ""
-    : `${r.pts ? `Dived ${Depth.fmt(Depth.metres(r.pts))}` : "No dive this time"} · now at ${depthNow(soloTotal())}`;
-  renderPlot();
-  if (!$("next").disabled) $("next").focus();
-}
-
-function appeal(yes) {
-  const r = S.results[S.i];
-  if (!r || r.how !== "ask") return;
-  Object.assign(r, yes ? { how: "appeal", pts: APPEAL_PTS } : { how: "refused", pts: 0 });
-  showReveal(r);
-}
-
-function nextPrompt() {
-  if (S.i < PER - 1) { S.i += 1; showPrompt(); } else finishSolo();
-}
-
-// Solo
-function startSolo(n, prompts) {
-  Object.assign(S, { mode: "solo", n, prompts: prompts || samplePrompts(n), i: 0, results: [] });
-  Depth.set(0);
-  showPrompt();
-}
-function finishSolo() {
-  const total = soloTotal();
-  if (S.n) {
+// Results: every prompt and every answer at once.
+function finish() {
+  stopTimer();
+  S.token += 1;
+  if (S.mode === "solo" && S.n) {
     const st = store.get("stats", { played: 0, best: 0 });
-    store.set("stats", { played: st.played + 1, best: Math.max(st.best, total) });
+    store.set("stats", { played: st.played + 1, best: Math.max(st.best, runTotal(0)) });
   }
   markPlayed(S.n);
-  $("sum-eyebrow").textContent = sampleLabel();
-  $("sum-score").replaceChildren(document.createTextNode(String(total)), el("small", "", ` / ${MAX}`));
-  $("sum-title").textContent = rankFor(total);
-  $("sum-depth").textContent = `Final depth: ${depthNow(total)}`;
-  const outliers = S.results.filter((r) => r.tier === 4).length;
-  $("sum-line").textContent = outliers
-    ? `${outliers} of your answers ${outliers === 1 ? "was a true outlier" : "were true outliers"}.`
-    : "No true outliers this time. The deep cuts are listed below each prompt.";
-  const bars = S.results.map((r) => (r.tier != null ? BLOCKS[r.tier] : r.pts ? BLOCKS[2] : "·")).join("");
-  $("sum-share").textContent = `Outlier · ${sampleLabel()} · ${total}/${MAX} · ${Depth.fmt(Depth.metres(total))}\n${bars}`;
-  $("sum-share-card").hidden = false;
-  const table = $("sum-table");
-  const head = el("thead");
-  const hr = el("tr");
-  hr.append(el("th", "", "Prompt"), el("th", "", "You said"), el("th", "num", "Points"));
-  head.append(hr);
-  const body = el("tbody");
-  S.results.forEach((r, i) => {
-    const tr = el("tr");
-    const a = el("td");
-    a.append(document.createTextNode(r.name || "—"), el("span", "sub", verdictText(r).pill));
-    tr.append(el("td", "", S.prompts[i].q), a, el("td", "num", "+" + r.pts));
-    body.append(tr);
-  });
-  table.replaceChildren(head, body);
-  $("sum-next").textContent = S.n ? `Play sample #${nextSolo()}` : "Another fresh sample";
-  $("copy-note").textContent = "";
+  S.finished = true;
+  renderSummary();
   show("summary");
 }
+const answersFor = (i) => S.runs.map((run) => run[i] || NONE);
+function shareKey(r) {
+  return r.pts > 0 ? norm(r.name).replace(/ /g, "") : null;
+}
+// Matching answers split their points between the players who gave them.
+function partyScores(answers) {
+  const counts = new Map();
+  answers.forEach((r) => { const k = shareKey(r); if (k) counts.set(k, (counts.get(k) || 0) + 1); });
+  return answers.map((r) => {
+    const k = shareKey(r);
+    const shared = k ? counts.get(k) : 1;
+    return { pts: Math.round(r.pts / shared), shared };
+  });
+}
+function partyTotals() {
+  return S.players.map((_, pi) => S.prompts.reduce((sum, _p, i) => {
+    const answers = answersFor(i);
+    return sum + (answers[pi].how === "ask" ? 0 : partyScores(answers)[pi].pts);
+  }, 0));
+}
+function standingsOrder(totals) {
+  return totals.map((t, i) => ({ t, i })).sort((a, b) => b.t - a.t || a.i - b.i);
+}
+function ordinal(n) {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+function renderStandings(tbody, totals) {
+  let place = 0;
+  let prev = null;
+  tbody.replaceChildren(...standingsOrder(totals).map((row, k) => {
+    if (row.t !== prev) { place = k + 1; prev = row.t; }
+    const tr = el("tr");
+    tr.append(el("td", "num", ordinal(place)), el("td", "", S.players[row.i]),
+      el("td", "num", String(row.t)), el("td", "num sub-num", Depth.fmt(Depth.metres(row.t))));
+    return tr;
+  }));
+}
 
-// Party
+function renderSummary() {
+  const party = S.mode === "party";
+  const totals = party ? partyTotals() : [runTotal(0)];
+  const order = standingsOrder(totals);
+  const top = order[0];
+  $("sum-eyebrow").textContent = party ? `${sampleLabel()} · ${S.players.length} players` : sampleLabel();
+  $("sum-score").replaceChildren(document.createTextNode(String(top.t)), el("small", "", ` / ${MAX}`));
+  $("sum-standings-card").hidden = !party;
+  if (party) {
+    const tied = order.filter((r) => r.t === top.t).length > 1;
+    const undecided = S.runs.some((run) => run.some((r) => r && r.how === "ask"));
+    $("sum-title").textContent = tied ? "It's a tie at the top" : `${S.players[top.i]} wins`;
+    $("sum-depth").textContent = `Deepest dive: ${depthNow(top.t)}`;
+    $("sum-line").textContent = undecided
+      ? "Some answers aren't on our list. Decide together below whether they count."
+      : "Matching answers split their points. Every prompt is below.";
+    renderStandings($("sum-standings"), totals);
+    $("sum-share").textContent = `Outlier · ${sampleLabel()}\n${order.map((r, k) => `${k + 1}. ${S.players[r.i]} ${r.t}`).join("\n")}`;
+  } else {
+    const total = top.t;
+    const run = S.runs[0];
+    $("sum-title").textContent = rankFor(total);
+    $("sum-depth").textContent = `Final depth: ${depthNow(total)}`;
+    const outliers = run.filter((r) => r && r.tier === 4).length;
+    $("sum-line").textContent = outliers
+      ? `${outliers} of your answers ${outliers === 1 ? "was a true outlier" : "were true outliers"}. Every prompt is below.`
+      : "No true outliers this time. The deep cuts are listed with each prompt below.";
+    const bars = run.map((r) => (r && r.tier != null ? BLOCKS[r.tier] : r && r.pts ? BLOCKS[2] : "·")).join("");
+    $("sum-share").textContent = `Outlier · ${sampleLabel()} · ${total}/${MAX} · ${Depth.fmt(Depth.metres(total))}\n${bars}`;
+  }
+  Depth.set(top.t);
+  $("sum-list").replaceChildren(...S.prompts.map((p, i) => promptCard(p, i)));
+  $("sum-next").textContent = S.n ? `Play sample #${S.next}` : "Another fresh sample";
+  $("copy-note").textContent = "";
+}
+
+function promptCard(p, i) {
+  prep(p);
+  const card = el("div", "card answer-card");
+  const head = el("div", "stack");
+  head.style.gap = "4px";
+  head.append(el("span", "eyebrow", `${i + 1} · ${p.c}`), el("h3", "", p.q));
+  card.append(head);
+  if (S.mode === "party") {
+    const answers = answersFor(i);
+    const sc = partyScores(answers);
+    const body = el("tbody");
+    answers.forEach((r, pi) => {
+      const tr = el("tr");
+      const ans = el("td");
+      ans.append(el("span", r.tier != null && r.tier >= 3 ? "said-sm" : "", r.name || "—"));
+      let sub = verdictText(r).pill;
+      if (sc[pi].shared > 1) sub += ` · shared by ${sc[pi].shared}`;
+      if ((r.how === "claude" || r.how === "claude-no") && r.why) sub += ` · ${r.why}`;
+      ans.append(el("span", "sub", sub));
+      if (r.how === "ask") {
+        const row = el("div", "row");
+        row.style.marginTop = "6px";
+        const yes = el("button", "btn small", `Counts (+${APPEAL_PTS})`);
+        const no = el("button", "btn small quiet", "Doesn't");
+        yes.type = no.type = "button";
+        yes.addEventListener("click", () => { Object.assign(r, { how: "appeal", pts: APPEAL_PTS }); renderSummary(); });
+        no.addEventListener("click", () => { Object.assign(r, { how: "refused", pts: 0 }); renderSummary(); });
+        row.append(yes, no);
+        ans.append(row);
+      }
+      tr.append(el("td", "", S.players[pi]), ans, el("td", "num", r.how === "ask" ? "?" : "+" + sc[pi].pts));
+      body.append(tr);
+    });
+    const table = el("table");
+    table.append(body);
+    const wrap = el("div", "tablewrap");
+    wrap.append(table);
+    card.append(wrap);
+  } else {
+    const r = S.runs[0][i] || NONE;
+    const v = verdictText(r);
+    const row = el("div", "ans-row");
+    const left = el("div", "stack");
+    left.style.gap = "6px";
+    left.append(
+      el("span", "pill" + (v.miss ? " miss" : v.self ? " self" : ""), v.pill),
+      el("span", "ans-word" + (r.tier != null && r.tier >= 3 ? " said-sm" : ""), r.name || "—"),
+    );
+    row.append(left, el("span", "gain" + (r.pts ? "" : " zero"), "+" + r.pts));
+    card.append(row);
+    if (v.note) card.append(el("p", "note", v.note));
+  }
+  const lists = el("div", "lists");
+  const most = el("p");
+  most.append(el("span", "eyebrow", "Most people say"), el("br"), document.createTextNode(p.t[0].map((n) => n[0]).join(", ") || "—"));
+  const deep = el("p");
+  deep.append(el("span", "eyebrow", "Deep cuts"), el("br"), document.createTextNode((S.deepCuts[i] || []).join(", ") || "—"));
+  lists.append(most, deep);
+  card.append(lists);
+  return card;
+}
+
+// Party setup
 function partyNames() {
   return store.get("party", ["", ""]);
 }
@@ -2091,163 +2186,6 @@ function readPlayers() {
     return c > 1 ? `${n} ${c}` : n;
   });
 }
-function startParty(n, prompts) {
-  const players = readPlayers();
-  if (players.length < 2) { $("party-error").textContent = "Add at least two players."; return; }
-  Object.assign(S, {
-    mode: "party", n, prompts: prompts || samplePrompts(n), i: 0, results: [],
-    players, totals: players.map(() => 0), turn: 0, pending: [],
-  });
-  Depth.set(0);
-  showPass(false);
-}
-function showPass(afterAnswer) {
-  stopTimer();
-  $("pass-eyebrow").textContent = afterAnswer ? "Locked in. Pass the device to" : `Prompt ${S.i + 1} of ${PER} · first up`;
-  $("pass-who").textContent = S.players[S.turn];
-  $("pass-go").textContent = `I'm ${S.players[S.turn]}, show my prompt`;
-  $("status-sample").textContent = sampleLabel();
-  $("status-score").textContent = S.totals[S.turn];
-  show("pass");
-  $("pass-go").focus();
-}
-
-function partyReveal() {
-  stopTimer();
-  const p = prep(S.prompts[S.i]);
-  $("pr-count").textContent = `Prompt ${S.i + 1} of ${PER}`;
-  $("pr-prompt").textContent = p.q;
-  const none = { input: "", name: "", tier: null, pts: 0, how: "empty" };
-  S.results[S.i] = { answers: S.players.map((_, pi) => S.pending[pi] || none) };
-  show("party-reveal");
-  renderPartyReveal();
-}
-
-function shareKey(r) {
-  return r.pts > 0 ? norm(r.name).replace(/ /g, "") : null;
-}
-// Matching answers split their points between the players who gave them.
-function partyScores(answers) {
-  const counts = new Map();
-  answers.forEach((r) => { const k = shareKey(r); if (k) counts.set(k, (counts.get(k) || 0) + 1); });
-  return answers.map((r) => {
-    const k = shareKey(r);
-    const shared = k ? counts.get(k) : 1;
-    return { pts: Math.round(r.pts / shared), shared };
-  });
-}
-function renderPartyReveal() {
-  const p = S.prompts[S.i];
-  const { answers } = S.results[S.i];
-  const scores = partyScores(answers);
-  const pendingAsk = answers.some((r) => r.how === "ask");
-  $("pr-rows").replaceChildren(...answers.map((r, idx) => {
-    const tr = el("tr");
-    const ans = el("td");
-    const word = el("span", r.tier != null && r.tier >= 3 ? "said-sm" : "", r.name || "—");
-    ans.append(word);
-    const v = verdictText(r);
-    let sub = v.pill;
-    if (scores[idx].shared > 1) sub += ` · shared by ${scores[idx].shared}`;
-    if ((r.how === "claude" || r.how === "claude-no") && r.why) sub += ` · ${r.why}`;
-    ans.append(el("span", "sub", sub));
-    if (r.how === "ask") {
-      const row = el("div", "row");
-      row.style.marginTop = "6px";
-      const yes = el("button", "btn small", `Counts (+${APPEAL_PTS})`);
-      const no = el("button", "btn small quiet", "Doesn't");
-      yes.type = no.type = "button";
-      yes.addEventListener("click", () => { Object.assign(r, { how: "appeal", pts: APPEAL_PTS }); renderPartyReveal(); });
-      no.addEventListener("click", () => { Object.assign(r, { how: "refused", pts: 0 }); renderPartyReveal(); });
-      row.append(yes, no);
-      ans.append(row);
-    }
-    tr.append(el("td", "", S.players[idx]), ans, el("td", "num", r.how === "ask" ? "?" : "+" + scores[idx].pts));
-    return tr;
-  }));
-  $("pr-note").textContent = pendingAsk
-    ? "Some answers aren't on our list. Decide together whether they count."
-    : "Rarer answers score more. Matching answers split their points.";
-  $("pr-most").textContent = p.t[0].map((n) => n[0]).join(", ") || "—";
-  const deepPool = (p.t[4].length ? p.t[4] : p.t[3]).map((n) => n[0]);
-  $("pr-deep").textContent = pick(deepPool, 3).join(", ") || "—";
-  const totals = S.players.map((_, pi) => S.results.reduce((sum, res, ri) => {
-    if (!res) return sum;
-    const sc = partyScores(res.answers)[pi];
-    return sum + (res.answers[pi].how === "ask" ? 0 : sc.pts);
-  }, 0));
-  S.totals = totals;
-  renderStandings($("pr-standings"), totals);
-  const deepest = Math.max(...totals);
-  Depth.set(deepest);
-  const divers = S.players.filter((_, pi) => totals[pi] === deepest);
-  $("pr-depth").textContent = deepest
-    ? `Deepest: ${divers.join(" and ")} at ${depthNow(deepest)}`
-    : "Everyone's still at the surface.";
-  $("pr-next").disabled = pendingAsk;
-  $("pr-next").textContent = S.i === PER - 1 ? "Final standings" : "Next prompt";
-  if (!pendingAsk) $("pr-next").focus();
-}
-function standingsOrder(totals) {
-  return totals.map((t, i) => ({ t, i })).sort((a, b) => b.t - a.t || a.i - b.i);
-}
-function renderStandings(tbody, totals) {
-  let place = 0;
-  let prev = null;
-  tbody.replaceChildren(...standingsOrder(totals).map((row, k) => {
-    if (row.t !== prev) { place = k + 1; prev = row.t; }
-    const tr = el("tr");
-    tr.append(el("td", "num", ordinal(place)), el("td", "", S.players[row.i]), el("td", "num", String(row.t)));
-    return tr;
-  }));
-}
-function ordinal(n) {
-  const s = ["th", "st", "nd", "rd"];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
-}
-function partyNext() {
-  if (S.i < PER - 1) {
-    S.i += 1;
-    S.turn = 0;
-    S.pending = [];
-    showPass(false);
-  } else finishParty();
-}
-function finishParty() {
-  markPlayed(S.n);
-  const order = standingsOrder(S.totals);
-  const top = order[0];
-  const tied = order.filter((r) => r.t === top.t).length > 1;
-  $("sum-eyebrow").textContent = `${sampleLabel()} · ${S.players.length} players`;
-  $("sum-score").replaceChildren(document.createTextNode(String(top.t)), el("small", "", ` / ${MAX}`));
-  $("sum-title").textContent = tied ? "It's a tie at the top" : `${S.players[top.i]} wins`;
-  $("sum-line").textContent = `Top score rank: ${rankFor(top.t)}. Each prompt below shows what everyone said.`;
-  $("sum-depth").textContent = `Deepest dive: ${depthNow(top.t)}`;
-  const lines = order.map((r, k) => `${k + 1}. ${S.players[r.i]} ${r.t}`);
-  $("sum-share").textContent = `Outlier · ${sampleLabel()}\n${lines.join("\n")}`;
-  const table = $("sum-table");
-  const head = el("thead");
-  const hr = el("tr");
-  hr.append(el("th", "", "Prompt"), ...S.players.map((n) => el("th", "", n)));
-  head.append(hr);
-  const body = el("tbody");
-  S.results.forEach((res, i) => {
-    const tr = el("tr");
-    tr.append(el("td", "", S.prompts[i].q));
-    const sc = partyScores(res.answers);
-    res.answers.forEach((r, pi) => {
-      const td = el("td");
-      td.append(document.createTextNode(r.name || "—"), el("span", "sub", "+" + sc[pi].pts));
-      tr.append(td);
-    });
-    body.append(tr);
-  });
-  table.replaceChildren(head, body);
-  $("sum-next").textContent = S.n ? `Play sample #${S.next}` : "Another fresh sample";
-  $("copy-note").textContent = "";
-  show("summary");
-}
 
 // Fresh prompts from Claude
 let freshCtl = null;
@@ -2263,7 +2201,8 @@ async function playFresh(mode) {
   try {
     const prompts = await freshPrompts(freshCtl.signal);
     note.textContent = "";
-    if (mode === "party") dive(() => startParty(0, prompts)); else dive(() => startSolo(0, prompts));
+    if (mode === "party") startGame("party", 0, prompts);
+    else dive(() => startGame("solo", 0, prompts));
   } catch (e) {
     const code = e && e.code;
     if (OFF_CODES.includes(code)) setClaude(null);
@@ -2292,34 +2231,37 @@ async function dive(go) {
 
 // Wiring
 let leaveArmed = 0;
+function leaveGame() {
+  stopTimer();
+  S.mode = null;
+  S.token += 1;
+  renderHome();
+  show("home");
+}
 function wire() {
   $("go-home").addEventListener("click", () => {
-    const inGame = !$("play").hidden || !$("pass").hidden || !$("party-reveal").hidden;
+    const inGame = !$("play").hidden || !$("pass").hidden;
     if (inGame && Date.now() - leaveArmed > 3000) {
       leaveArmed = Date.now();
       $("status-sample").textContent = "Tap the logo again to leave";
       return;
     }
-    stopTimer();
-    S.mode = null;
-    renderHome();
-    show("home");
+    leaveGame();
   });
-  $("play-solo").addEventListener("click", () => dive(() => startSolo(nextSolo())));
+  $("play-solo").addEventListener("click", () => dive(() => startGame("solo", nextSolo())));
   $("open-settings").addEventListener("click", () => { renderHome(); show("settings"); });
   $("settings-back").addEventListener("click", () => { renderHome(); show("home"); });
   $("skip").addEventListener("click", skip);
   $("ask-yes").addEventListener("click", () => {
     if (!S.ask || S.busy) return;
-    const r = Object.assign(S.ask, { how: "appeal", pts: APPEAL_PTS, tries: S.tries.slice() });
-    S.ask = null;
-    lockIn(r);
+    lockIn(Object.assign(S.ask, { how: "appeal", pts: APPEAL_PTS, tries: S.tries.slice() }));
   });
   $("ask-no").addEventListener("click", () => {
     if (!S.ask) return;
     S.tries.push(S.ask.input);
     S.ask = null;
     $("ask-row").hidden = true;
+    if (S.late) { lockIn({ ...NONE, tries: S.tries.slice() }); return; }
     tryNote("Try another.");
     $("answer").focus();
   });
@@ -2328,7 +2270,7 @@ function wire() {
   $("pick-form").addEventListener("submit", (e) => {
     e.preventDefault();
     const n = Math.floor(Number($("pick-number").value));
-    if (n >= 1) dive(() => startSolo(n));
+    if (n >= 1) dive(() => startGame("solo", n));
     else $("pick-number").focus();
   });
   $("timer-seg").addEventListener("click", (e) => {
@@ -2347,19 +2289,17 @@ function wire() {
     renderNames();
     $("player-" + (list.length - 1)).focus();
   });
-  $("start-party").addEventListener("click", () => dive(() => startParty(S.next)));
+  $("start-party").addEventListener("click", () => startGame("party", S.next));
   $("party-fresh").addEventListener("click", () => playFresh("party"));
-  $("pass-go").addEventListener("click", showPrompt);
+  $("pass-go").addEventListener("click", () => dive(showPrompt));
   $("answer-form").addEventListener("submit", (e) => { e.preventDefault(); submitAnswer(); });
-  $("appeal-yes").addEventListener("click", () => appeal(true));
-  $("appeal-no").addEventListener("click", () => appeal(false));
-  $("next").addEventListener("click", nextPrompt);
-  $("pr-next").addEventListener("click", partyNext);
-  $("sum-home").addEventListener("click", () => { S.mode = null; renderHome(); show("home"); });
+  $("sum-home").addEventListener("click", leaveGame);
   $("sum-next").addEventListener("click", () => {
-    if (S.mode === "party") { if (S.n) startParty(S.next); else { renderNames(); show("party-setup"); playFresh("party"); } }
-    else if (S.n) startSolo(nextSolo());
-    else { renderHome(); show("home"); playFresh("solo"); }
+    if (S.n) { startGame(S.mode, S.next); return; }
+    const mode = S.mode;
+    renderHome();
+    if (mode === "party") { renderNames(); show("party-setup"); } else show("settings");
+    playFresh(mode);
   });
   $("copy").addEventListener("click", () => {
     const text = $("sum-share").textContent;
@@ -2382,24 +2322,24 @@ function wire() {
 function snapshot() {
   if (!S.mode) return {};
   return {
-    mode: S.mode, n: S.n, i: S.i, players: S.players, turn: S.turn, pending: S.pending,
+    mode: S.mode, n: S.n, i: S.i, p: S.p, players: S.players, runs: S.runs, deepCuts: S.deepCuts,
     prompts: S.prompts.map((p) => (p.fresh ? { c: p.c, q: p.q, t: p.t, fresh: true } : { q: p.q })),
-    results: S.results,
+    finished: !$("summary").hidden,
   };
 }
 function restore(d) {
-  if (!d || !d.mode || !Array.isArray(d.prompts)) return false;
+  if (!d || !d.mode || !Array.isArray(d.prompts) || !Array.isArray(d.runs)) return false;
   const prompts = d.prompts.map((p) => (p.fresh ? p : BANK.find((b) => b.q === p.q))).filter(Boolean);
   if (prompts.length !== PER) return false;
   Object.assign(S, {
-    mode: d.mode, n: d.n || 0, i: d.i || 0, prompts, results: d.results || [],
-    players: d.players || [], turn: d.turn || 0, pending: d.pending || [],
+    mode: d.mode, n: d.n || 0, i: d.i || 0, p: d.p || 0, prompts,
+    players: d.players || ["You"], runs: d.runs, deepCuts: d.deepCuts || [],
   });
-  Depth.set(S.mode === "solo" ? soloTotal() : 0, true);
-  if (S.mode === "party") {
-    S.totals = S.players.map(() => 0);
-    if (S.results[S.i]) renderPartyReveal(); else showPass(S.turn > 0);
-  } else if (S.results[S.i] && S.results[S.i].how !== "checking") showReveal(S.results[S.i]);
+  S.token += 1;
+  if (d.finished) { renderSummary(); show("summary"); return true; }
+  Depth.set(runTotal(), true);
+  if (S.runs[S.p][S.i]) advance(); // that prompt was already locked in
+  else if (S.mode === "party" && S.i === 0) showPass();
   else showPrompt();
   return true;
 }
