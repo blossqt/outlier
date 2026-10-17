@@ -1,0 +1,27 @@
+{
+  "name": "Outlier",
+  "short_name": "Outlier",
+  "description": "Name one thing. Score for being the outlier.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f5f7fd",
+  "theme_color": "#3b5bdb",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
