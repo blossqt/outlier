@@ -5,10 +5,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=IBM+Plex+Mono:wght@400;600&display=swap">
 <style>
-/* Layout: one centred column on graph paper; each prompt is a plot, your answer a point on the rarity curve. */
+/* Layout: one centred column over open water; rarer answers take you deeper (see depth.js). */
 :root {
   --paper: #f5f7fd;
-  --grid: rgba(59, 91, 219, 0.075);
   --surface: #ffffff;
   --ink: #151a2e;
   --muted: #59628a;
@@ -27,13 +26,14 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --paper: #0d1120; --grid: rgba(123, 147, 252, 0.085); --surface: #151b31; --ink: #e8ecfb;
+    --paper: #0d1120; --surface: #151b31; --ink: #e8ecfb;
     --muted: #9aa4c8; --line: #2b3456; --accent: #7b93fc; --accent-ink: #0d1120;
     --mark: #f2c94c; --mark-ink: #0d1120; --good: #69db7c; --bad: #ff8787; color-scheme: dark;
   }
 }
-:root[data-theme="dark"] {
-  --paper: #0d1120; --grid: rgba(123, 147, 252, 0.085); --surface: #151b31; --ink: #e8ecfb;
+:root[data-theme="dark"],
+:root[data-deep] { /* past the sunlight the page goes dark too, whatever the theme */
+  --paper: #0d1120; --surface: #151b31; --ink: #e8ecfb;
   --muted: #9aa4c8; --line: #2b3456; --accent: #7b93fc; --accent-ink: #0d1120;
   --mark: #f2c94c; --mark-ink: #0d1120; --good: #69db7c; --bad: #ff8787; color-scheme: dark;
 }
@@ -41,19 +41,19 @@
 html, body { min-height: 100%; }
 body {
   background-color: var(--paper);
-  background-image:
-    linear-gradient(var(--grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  background-size: 24px 24px;
   color: var(--ink);
+  transition: color 0.6s ease;
   font: 400 1rem/1.55 var(--body);
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+.sea { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+.card, .field, .chip, .pill, .seg, .share, th, td, .note, .lede, .eyebrow, .status { transition: background-color 0.6s ease, color 0.6s ease, border-color 0.6s ease; }
 button, input { font: inherit; color: inherit; }
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 
 .app {
+  position: relative; z-index: 1;
   max-width: 44rem;
   margin: 0 auto;
   padding-left: max(16px, env(safe-area-inset-left, 0px));
@@ -69,6 +69,8 @@ button, input { font: inherit; color: inherit; }
 .brand b { font: 800 1.35rem/1 var(--display); letter-spacing: -0.02em; }
 .status { display: flex; gap: 14px; font: 600 0.8rem/1 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .status strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.depth-line { font: 600 0.8rem/1.4 var(--mono); color: var(--muted); letter-spacing: 0.04em; margin: 0; }
+@media (max-width: 520px) { .wide-only { display: none; } }
 
 /* Shared pieces */
 h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -0.02em; }
@@ -185,6 +187,7 @@ td .sub { display: block; font-size: 0.8rem; color: var(--muted); }
     <div class="status" id="status" hidden>
       <span id="status-sample"></span>
       <span>Score <strong id="status-score">0</strong></span>
+      <span class="wide-only">Depth <strong id="status-depth">0 m</strong></span>
     </div>
   </header>
 
@@ -294,6 +297,7 @@ td .sub { display: block; font-size: 0.8rem; color: var(--muted); }
           <span class="gain" id="gain"></span>
         </div>
         <p class="note" id="verdict-note"></p>
+        <p class="depth-line" id="depth-line"></p>
         <div class="row" id="appeal" hidden>
           <button class="btn small" id="appeal-yes" type="button">It counts</button>
           <button class="btn small quiet" id="appeal-no" type="button">Fair, it doesn't</button>
@@ -328,6 +332,7 @@ td .sub { display: block; font-size: 0.8rem; color: var(--muted); }
       </div>
       <div class="card">
         <h3>Standings</h3>
+        <p class="depth-line" id="pr-depth"></p>
         <div class="tablewrap"><table><tbody id="pr-standings"></tbody></table></div>
       </div>
       <div class="row"><button class="btn primary" id="pr-next" type="button">Next prompt</button></div>
@@ -338,6 +343,7 @@ td .sub { display: block; font-size: 0.8rem; color: var(--muted); }
       <span class="eyebrow" id="sum-eyebrow"></span>
       <div class="big" id="sum-score"></div>
       <h2 id="sum-title"></h2>
+      <p class="depth-line" id="sum-depth"></p>
       <p class="lede" id="sum-line"></p>
       <div class="card" id="sum-share-card">
         <div class="share" id="sum-share"></div>
@@ -626,6 +632,416 @@ async function evaluate(p, input, judged) {
   return { input: text, name: text, tier: null, pts: 0, how: "ask" };
 }
 
+// The background is open ocean, and rare answers take you down. Each point
+// scored is 15 m of dive, so a perfect sample (700) reaches 10,500 m and the
+// trench floor comes into view. Drawn on one canvas behind the page.
+const Depth = (() => {
+  const M_PER_PT = 15;
+  const FLOOR = 10750;
+  const SPAN = 420; // metres of water one screen shows
+  const FLIP = 540; // below this the page switches to its dark colours, light theme or not
+  const ZONES = [
+    { at: 0, name: "Sunlight zone" },
+    { at: 200, name: "Twilight zone" },
+    { at: 1000, name: "Midnight zone" },
+    { at: 4000, name: "Abyssal zone" },
+    { at: 6000, name: "Hadal zone" },
+  ];
+  const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const DARK = [[0, "#113a5e"], [200, "#0f3358"], [1000, "#0b2645"], [2500, "#081a33"], [4000, "#061226"], [6000, "#040b1a"], [FLOOR, "#010309"]]
+    .map(([m, c]) => [m, hex(c)]);
+  const LIGHT = [[0, "#e6f4fb"], [250, "#d6ecf8"], [FLIP, "#c9e5f5"]].map(([m, c]) => [m, hex(c)]);
+
+  const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+  const smooth = (a, b, x) => { const k = clamp((x - a) / (b - a)); return k * k * (3 - 2 * k); };
+  const mix = (a, b, k) => a.map((v, i) => v + (b[i] - v) * k);
+  const wrap = (v, span) => ((v % span) + span) % span;
+  const rgb = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+  function sample(stops, m) {
+    if (m <= stops[0][0]) return stops[0][1];
+    for (let i = 1; i < stops.length; i++) {
+      if (m <= stops[i][0]) {
+        const [m0, c0] = stops[i - 1];
+        const [m1, c1] = stops[i];
+        return mix(c0, c1, (m - m0) / (m1 - m0));
+      }
+    }
+    return stops[stops.length - 1][1];
+  }
+  const zoneOf = (m) => ZONES.reduce((z, x) => (m >= x.at ? x : z), ZONES[0]).name;
+  const fmt = (m) => Math.round(m).toLocaleString("en-US") + " m";
+
+  const cv = document.createElement("canvas");
+  cv.className = "sea";
+  cv.setAttribute("aria-hidden", "true");
+  document.body.prepend(cv);
+  const ctx = cv.getContext("2d");
+  const root = document.documentElement;
+  const still = matchMedia("(prefers-reduced-motion: reduce)");
+  const prefersDark = matchMedia("(prefers-color-scheme: dark)");
+
+  let W = 0, H = 0, ppm = 2;
+  let cam = 0, target = 0, vel = 0;
+  let dark = false, fade = 0; // fade: 0 shows the light-theme water, 1 the dark
+  let t = 0, last = 0, skip = false, dirty = true, shown = null;
+  const readouts = [];
+
+  // Scenery, placed at random in screen-relative coordinates.
+  const R = Math.random;
+  let snow = [], jellies = [], glows = [], fish = [];
+  function populate() {
+    const n = clamp(Math.round((W * H) / 7000), 50, 220);
+    snow = [0.3, 0.6, 1].map((f, li) => ({
+      f, size: [0.7, 1.1, 1.7][li], alpha: [0.35, 0.5, 0.7][li],
+      pts: Array.from({ length: Math.round(n * [0.5, 0.32, 0.18][li]) }, () => ({ x: R(), y: R(), s: 4 + R() * 10, w: R() * 6.28 })),
+    }));
+    jellies = Array.from({ length: 4 }, (_, i) => ({
+      x: 0.08 + R() * 0.84, y: (i + R() * 0.6) / 4, size: 14 + R() * 16, ph: R() * 6.28,
+      hue: R() < 0.5 ? [150, 200, 255] : [205, 165, 255],
+    }));
+    const hues = [[80, 240, 210], [100, 160, 255], [190, 130, 255]];
+    glows = Array.from({ length: 22 }, () => ({ x: R(), y: R(), r: 6 + R() * 16, ph: R() * 6.28, w: 0.4 + R() * 1.2, c: hues[(R() * 3) | 0] }));
+    fish = Array.from({ length: 16 }, () => ({ dx: (R() - 0.5) * 130, dy: (R() - 0.5) * 50, ph: R() * 6.28, s: 0.7 + R() * 0.5 }));
+  }
+
+  const sprites = new Map();
+  function sprite(c) {
+    const key = c.join();
+    if (!sprites.has(key)) {
+      const s = document.createElement("canvas");
+      s.width = s.height = 64;
+      const g = s.getContext("2d");
+      const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grd.addColorStop(0, rgb(c, 1));
+      grd.addColorStop(0.2, rgb(c, 0.6));
+      grd.addColorStop(1, rgb(c, 0));
+      g.fillStyle = grd;
+      g.fillRect(0, 0, 64, 64);
+      sprites.set(key, s);
+    }
+    return sprites.get(key);
+  }
+  function glow(c, x, y, r, a) {
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = a;
+    ctx.drawImage(sprite(c), x - r, y - r, r * 2, r * 2);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  function drawJelly(x, y, j, a) {
+    const pulse = 1 + 0.12 * Math.sin(t * 1.6 + j.ph);
+    const r = j.size * pulse;
+    const h = (j.size * 0.75) / pulse;
+    const c = fade > 0.5 ? j.hue : [50, 110, 160];
+    if (fade > 0.3) glow(j.hue, x, y, r * 2.4, a * 0.3 * fade);
+    ctx.fillStyle = rgb(c, 0.16 * a);
+    ctx.strokeStyle = rgb(c, 0.5 * a);
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, h, 0, Math.PI, 0);
+    ctx.quadraticCurveTo(x, y + h * 0.35, x - r, y);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    for (let k = 0; k < 4; k++) {
+      const tx = x - r * 0.6 + (k * r * 1.2) / 3;
+      ctx.moveTo(tx, y + h * 0.15);
+      for (let s = 1; s <= 8; s++) {
+        ctx.lineTo(tx + Math.sin(t * 1.4 + j.ph + s * 0.6 + k) * (2 + s * 0.6), y + h * 0.15 + s * r * 0.28);
+      }
+    }
+    ctx.strokeStyle = rgb(c, 0.32 * a);
+    ctx.stroke();
+  }
+
+  function draw() {
+    dirty = false;
+    const top = Math.max(0, cam - SPAN * 0.25); // depth at the top edge of the screen
+    const bottom = top + H / ppm;
+    const water = (m) => {
+      const d = sample(DARK, m);
+      return fade >= 1 ? d : mix(sample(LIGHT, Math.min(m, FLIP)), d, fade);
+    };
+    const ink = fade > 0.5 ? [200, 225, 255] : [20, 70, 110]; // lines and labels drawn on the water
+
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, rgb(water(top)));
+    g.addColorStop(0.5, rgb(water((top + bottom) / 2)));
+    g.addColorStop(1, rgb(water(bottom)));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    // Sunlight: rays slanting down from the surface, gone by about 300 m.
+    const sun = 1 - smooth(0, 320, top);
+    const sy = -top * ppm;
+    if (sun > 0) {
+      for (let i = 0; i < 5; i++) {
+        const x0 = W * (0.12 + i * 0.2) + Math.sin(t * 0.13 + i * 1.7) * 40;
+        const w0 = 18 + (i % 3) * 14;
+        const w1 = w0 * 3.2;
+        const len = H * (0.75 + 0.1 * Math.sin(t * 0.2 + i));
+        const a = sun * (0.07 + 0.035 * Math.sin(t * 0.5 + i * 2.1)) * (fade > 0.5 ? 1 : 1.7);
+        const grd = ctx.createLinearGradient(0, sy, 0, sy + len);
+        grd.addColorStop(0, `rgba(255,255,255,${a})`);
+        grd.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.moveTo(x0 - w0, sy);
+        ctx.lineTo(x0 + w0, sy);
+        ctx.lineTo(x0 + W * 0.12 + w1, sy + len);
+        ctx.lineTo(x0 + W * 0.12 - w1, sy + len);
+        ctx.closePath();
+        ctx.fill();
+      }
+      if (sy > -80) {
+        // The underside of the surface, shimmering along the top edge.
+        const sg = ctx.createLinearGradient(0, sy, 0, sy + 80);
+        sg.addColorStop(0, `rgba(255,255,255,${0.4 * sun})`);
+        sg.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = sg;
+        ctx.fillRect(0, sy, W, 80);
+        ctx.strokeStyle = `rgba(255,255,255,${0.28 * sun})`;
+        ctx.lineWidth = 1.2;
+        for (let k = 0; k < 3; k++) {
+          ctx.beginPath();
+          for (let x = 0; x <= W + 12; x += 12) {
+            const y = sy + 10 + k * 14 + Math.sin(x * 0.02 + t * (0.8 + k * 0.3) + k) * 3 + Math.sin(x * 0.053 - t * 0.6) * 2;
+            if (x) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+          }
+          ctx.stroke();
+        }
+      }
+    }
+
+    // A school of fish around 140 m, crossing the screen every 40 seconds or so.
+    const fy = (140 - top) * ppm;
+    if (fy > -100 && fy < H + 100) {
+      const cx = wrap(t * 22, W + 400) - 200;
+      ctx.fillStyle = rgb(mix([20, 70, 110], [3, 12, 28], fade), 0.25 + 0.25 * fade);
+      ctx.beginPath();
+      for (const p of fish) {
+        const x = cx + p.dx + Math.sin(t * 0.7 + p.ph) * 6;
+        const y = fy + p.dy + Math.sin(t * 1.1 + p.ph) * 4;
+        const s = p.s;
+        const flick = Math.sin(t * 6 + p.ph) * 0.8;
+        ctx.moveTo(x + 7 * s, y);
+        ctx.ellipse(x, y, 7 * s, 2.6 * s, 0, 0, Math.PI * 2);
+        ctx.moveTo(x - 6 * s, y);
+        ctx.lineTo(x - 11 * s, y - 3.2 * s + flick);
+        ctx.lineTo(x - 11 * s, y + 3.2 * s + flick);
+        ctx.closePath();
+      }
+      ctx.fill();
+    }
+
+    // Jellyfish from the twilight zone down to the abyss, drifting slowly upwards.
+    const jA = smooth(250, 600, cam) * (1 - smooth(4500, 6500, cam));
+    if (jA > 0.01) {
+      const span = H * 2.2;
+      for (const j of jellies) {
+        const x = j.x * W + Math.sin(t * 0.1 + j.ph) * 30;
+        const y = wrap(j.y * span - t * 6 - cam * ppm * 0.85, span) - H * 0.6;
+        if (y > -120 && y < H + 120) drawJelly(x, y, j, jA);
+      }
+    }
+
+    // Marine snow in three layers. Diving streaks it past; it streaks the other way going up.
+    const deep = smooth(0, 1500, cam);
+    const snowC = fade > 0.5 ? [220, 235, 255] : [255, 255, 255];
+    ctx.lineCap = "round";
+    for (const L of snow) {
+      const span = H + 120;
+      const off = cam * ppm * L.f;
+      const len = clamp(vel * ppm * L.f * 0.045, -110, 110);
+      ctx.strokeStyle = rgb(snowC, L.alpha * (0.35 + 0.65 * deep));
+      ctx.lineWidth = L.size * 2;
+      ctx.beginPath();
+      for (const p of L.pts) {
+        const x = p.x * W + Math.sin(t * 0.3 + p.w) * 6 * L.f;
+        const y = wrap(p.y * span + t * p.s * L.f - off, span) - 60;
+        ctx.moveTo(x, y);
+        ctx.lineTo(x, y + len + 0.01);
+      }
+      ctx.stroke();
+    }
+
+    // Bioluminescence once the sunlight is gone.
+    const gA = smooth(700, 2000, cam) * fade;
+    if (gA > 0.01) {
+      const span = H * 1.6;
+      for (const p of glows) {
+        const x = p.x * W + Math.sin(t * 0.2 + p.ph) * 12;
+        const y = wrap(p.y * span - cam * ppm * 0.55 + t * 3, span) - H * 0.3;
+        if (y < -40 || y > H + 40) continue;
+        const k = 0.5 + 0.5 * Math.sin(t * p.w + p.ph);
+        glow(p.c, x, y, p.r * (0.8 + 0.3 * k), gA * (0.15 + 0.6 * k * k));
+      }
+    }
+
+    // In the abyss, one lure light: the outlier down here.
+    const lA = smooth(3500, 5200, cam) * fade;
+    if (lA > 0.01) {
+      const x = W * 0.8 + Math.sin(t * 0.21) * W * 0.06;
+      const y = H * 0.66 + Math.sin(t * 0.33) * H * 0.04;
+      const k = 0.7 + 0.3 * Math.sin(t * 2.3) * Math.sin(t * 0.7);
+      ctx.strokeStyle = `rgba(255,224,102,${0.14 * lA})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + 10, y - 50, x + 46, y - 34);
+      ctx.stroke();
+      glow([255, 224, 102], x, y, 30, lA * k);
+      glow([255, 246, 210], x, y, 6, lA);
+    }
+
+    // Zone boundaries, passed on the way down.
+    ctx.font = "600 11px 'IBM Plex Mono', ui-monospace, monospace";
+    ctx.lineWidth = 1;
+    for (const z of ZONES) {
+      const y = (z.at - top) * ppm;
+      if (!z.at || y < -20 || y > H + 20) continue;
+      ctx.strokeStyle = rgb(ink, 0.2);
+      ctx.setLineDash([4, 6]);
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = rgb(ink, 0.5);
+      ctx.textAlign = "left";
+      ctx.fillText(`${z.name} · ${fmt(z.at)}`.toUpperCase(), 14, y - 7);
+    }
+
+    // The trench floor, only reached by a perfect sample.
+    const floorY = (FLOOR - top) * ppm;
+    if (floorY < H + 40) {
+      ctx.beginPath();
+      ctx.moveTo(-2, H + 2);
+      for (let x = -2; x <= W + 12; x += 10) {
+        ctx.lineTo(x, floorY + 16 * Math.sin(x * 0.011) + 8 * Math.sin(x * 0.037 + 1.3) + 3 * Math.sin(x * 0.13));
+      }
+      ctx.lineTo(W + 12, H + 2);
+      ctx.closePath();
+      const bed = ctx.createLinearGradient(0, floorY - 30, 0, H);
+      bed.addColorStop(0, "#1a2540");
+      bed.addColorStop(1, "#0a1020");
+      ctx.fillStyle = bed;
+      ctx.fill();
+      ctx.strokeStyle = "rgba(160,190,245,0.45)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    // A depth tape in the right margin, when the screen is wide enough to have one.
+    if ((W - Math.min(W, 704)) / 2 >= 110) {
+      const x = W - 26;
+      ctx.strokeStyle = rgb(ink, 0.22);
+      ctx.fillStyle = rgb(ink, 0.45);
+      ctx.textAlign = "right";
+      ctx.beginPath();
+      for (let m = Math.ceil(top / 50) * 50; m <= bottom; m += 50) {
+        const y = (m - top) * ppm;
+        const major = m % 200 === 0;
+        ctx.moveTo(x - (major ? 12 : 6), y);
+        ctx.lineTo(x, y);
+        if (major) ctx.fillText(fmt(m), x - 18, y + 4);
+      }
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+      ctx.stroke();
+      const y = (cam - top) * ppm;
+      ctx.fillStyle = rgb(ink, 0.9);
+      ctx.beginPath();
+      ctx.moveTo(x + 2, y);
+      ctx.lineTo(x + 11, y - 5);
+      ctx.lineTo(x + 11, y + 5);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    const m = Math.round(cam / 5) * 5;
+    if (m !== shown) {
+      shown = m;
+      for (const el of readouts) el.textContent = fmt(m);
+    }
+  }
+
+  function setDeep() {
+    const on = root.hasAttribute("data-deep");
+    if (!on && cam >= FLIP) root.setAttribute("data-deep", "");
+    else if (on && cam < FLIP - 20) root.removeAttribute("data-deep");
+  }
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const dt = last ? Math.min(0.5, (now - last) / 1000) : 0;
+    last = now;
+    if (still.matches) {
+      // No motion: jump straight to the new depth and redraw only when something changed.
+      if (cam !== target) { cam = target; dirty = true; }
+      vel = 0;
+      setDeep();
+      const want = dark || root.hasAttribute("data-deep") ? 1 : 0;
+      if (fade !== want) { fade = want; dirty = true; }
+      if (dirty) draw();
+      return;
+    }
+    t += dt;
+    // Small fixed steps, so a slow device still finishes the dive on time.
+    for (let left = dt; left > 0; left -= 1 / 120) {
+      const h = Math.min(left, 1 / 120);
+      vel += (clamp((target - cam) * 2.4, -5200, 5200) - vel) * Math.min(1, h * 5);
+      cam = Math.max(0, cam + vel * h);
+    }
+    if (Math.abs(target - cam) < 0.5 && Math.abs(vel) < 3) { cam = target; vel = 0; }
+    setDeep();
+    const want = dark || root.hasAttribute("data-deep") ? 1 : 0;
+    if (fade !== want) fade = want > fade ? Math.min(want, fade + dt / 0.6) : Math.max(want, fade - dt / 0.6);
+    if (vel === 0 && (skip = !skip)) return; // drifting scenery only needs half the frames
+    draw();
+  }
+
+  function resize() {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    cv.width = Math.round(W * dpr);
+    cv.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ppm = H / SPAN;
+    dirty = true;
+  }
+  function readTheme() {
+    const th = root.dataset.theme;
+    dark = th === "dark" || (th !== "light" && prefersDark.matches);
+    dirty = true;
+  }
+
+  readTheme();
+  fade = dark ? 1 : 0;
+  if (prefersDark.addEventListener) prefersDark.addEventListener("change", readTheme);
+  else if (prefersDark.addListener) prefersDark.addListener(readTheme);
+  new MutationObserver(readTheme).observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+  window.addEventListener("resize", resize);
+  resize();
+  populate();
+  requestAnimationFrame(frame);
+
+  return {
+    metres: (points) => points * M_PER_PT,
+    // Dive (or rise) to the depth for this many points.
+    set(points, instant) {
+      target = clamp(points * M_PER_PT, 0, FLOOR - 150);
+      if (instant) { cam = target; vel = 0; }
+      dirty = true;
+    },
+    readout(el) { if (el) readouts.push(el); shown = null; },
+    zoneOf,
+    fmt,
+  };
+})();
+
 // Screens and game flow.
 const $ = (id) => document.getElementById(id);
 const SCREENS = ["home", "party-setup", "pass", "play", "party-reveal", "summary"];
@@ -641,6 +1057,7 @@ const S = {
   pending: [], // party: raw answers for the current prompt
   timerSec: store.get("timer", 25),
   busy: false,
+  next: 0, // the sample the Play buttons offer: a random one each time the page opens
 };
 
 function el(tag, cls, text) {
@@ -651,11 +1068,31 @@ function el(tag, cls, text) {
 }
 function show(id) {
   SCREENS.forEach((s) => { $(s).hidden = s !== id; });
+  if (id === "home" || id === "party-setup") Depth.set(0);
   $("status").hidden = !(id === "play" || id === "pass");
   window.scrollTo(0, 0);
 }
 const sampleLabel = () => (S.n ? `Sample #${S.n}` : "Fresh sample");
-const nextSolo = () => store.get("next", 1);
+const nextSolo = () => S.next;
+
+// Samples are numbered so friends can share one; on this device, pick one not played yet.
+function randomSample() {
+  const played = new Set(store.get("played", []));
+  let n = 1;
+  for (let k = 0; k < 60; k++) {
+    n = 1 + Math.floor(Math.random() * 999);
+    if (!played.has(n)) break;
+  }
+  return n;
+}
+function markPlayed(n) {
+  if (n) store.set("played", [...store.get("played", []).filter((x) => x !== n), n].slice(-400));
+  S.next = randomSample();
+}
+function depthNow(points) {
+  const m = Depth.metres(points);
+  return `${Depth.fmt(m)}, ${Depth.zoneOf(m)}`;
+}
 
 // Home
 function renderHome() {
@@ -816,6 +1253,10 @@ function showReveal(r) {
   $("answer-form").hidden = true;
   $("reveal").hidden = false;
   $("status-score").textContent = soloTotal();
+  const pending = r.how === "checking" || r.how === "ask";
+  if (!pending) Depth.set(soloTotal());
+  $("depth-line").textContent = pending ? ""
+    : `${r.pts ? `Dived ${Depth.fmt(Depth.metres(r.pts))}` : "No dive this time"} · now at ${depthNow(soloTotal())}`;
   renderPlot();
   if (!$("next").disabled) $("next").focus();
 }
@@ -834,6 +1275,7 @@ function nextPrompt() {
 // Solo
 function startSolo(n, prompts) {
   Object.assign(S, { mode: "solo", n, prompts: prompts || samplePrompts(n), i: 0, results: [] });
+  Depth.set(0);
   showPrompt();
 }
 function finishSolo() {
@@ -841,17 +1283,18 @@ function finishSolo() {
   if (S.n) {
     const st = store.get("stats", { played: 0, best: 0 });
     store.set("stats", { played: st.played + 1, best: Math.max(st.best, total) });
-    if (S.n >= nextSolo()) store.set("next", S.n + 1);
   }
+  markPlayed(S.n);
   $("sum-eyebrow").textContent = sampleLabel();
   $("sum-score").replaceChildren(document.createTextNode(String(total)), el("small", "", ` / ${MAX}`));
   $("sum-title").textContent = rankFor(total);
+  $("sum-depth").textContent = `Final depth: ${depthNow(total)}`;
   const outliers = S.results.filter((r) => r.tier === 4).length;
   $("sum-line").textContent = outliers
     ? `${outliers} of your answers ${outliers === 1 ? "was a true outlier" : "were true outliers"}.`
     : "No true outliers this time. The deep cuts are listed below each prompt.";
   const bars = S.results.map((r) => (r.tier != null ? BLOCKS[r.tier] : r.pts ? BLOCKS[2] : "·")).join("");
-  $("sum-share").textContent = `Outlier · ${sampleLabel()} · ${total}/${MAX}\n${bars}`;
+  $("sum-share").textContent = `Outlier · ${sampleLabel()} · ${total}/${MAX} · ${Depth.fmt(Depth.metres(total))}\n${bars}`;
   $("sum-share-card").hidden = false;
   const table = $("sum-table");
   const head = el("thead");
@@ -906,7 +1349,7 @@ function renderNames() {
     return row;
   }));
   $("add-player").disabled = names.length >= 8;
-  $("start-party").textContent = `Start sample #${store.get("partyNext", 1)}`;
+  $("start-party").textContent = `Start sample #${S.next}`;
 }
 function readPlayers() {
   const names = partyNames().map((n, i) => n.trim() || `Player ${i + 1}`);
@@ -924,6 +1367,7 @@ function startParty(n, prompts) {
     mode: "party", n, prompts: prompts || samplePrompts(n), i: 0, results: [],
     players, totals: players.map(() => 0), turn: 0, pending: [],
   });
+  Depth.set(0);
   showPass(false);
 }
 function showPass(afterAnswer) {
@@ -1016,6 +1460,12 @@ function renderPartyReveal() {
   }, 0));
   S.totals = totals;
   renderStandings($("pr-standings"), totals);
+  const deepest = Math.max(...totals);
+  Depth.set(deepest);
+  const divers = S.players.filter((_, pi) => totals[pi] === deepest);
+  $("pr-depth").textContent = deepest
+    ? `Deepest: ${divers.join(" and ")} at ${depthNow(deepest)}`
+    : "Everyone's still at the surface.";
   $("pr-next").disabled = pendingAsk;
   $("pr-next").textContent = S.i === PER - 1 ? "Final standings" : "Next prompt";
   if (!pendingAsk) $("pr-next").focus();
@@ -1047,7 +1497,7 @@ function partyNext() {
   } else finishParty();
 }
 function finishParty() {
-  if (S.n && S.n >= store.get("partyNext", 1)) store.set("partyNext", S.n + 1);
+  markPlayed(S.n);
   const order = standingsOrder(S.totals);
   const top = order[0];
   const tied = order.filter((r) => r.t === top.t).length > 1;
@@ -1055,6 +1505,7 @@ function finishParty() {
   $("sum-score").replaceChildren(document.createTextNode(String(top.t)), el("small", "", ` / ${MAX}`));
   $("sum-title").textContent = tied ? "It's a tie at the top" : `${S.players[top.i]} wins`;
   $("sum-line").textContent = `Top score rank: ${rankFor(top.t)}. Each prompt below shows what everyone said.`;
+  $("sum-depth").textContent = `Deepest dive: ${depthNow(top.t)}`;
   const lines = order.map((r, k) => `${k + 1}. ${S.players[r.i]} ${r.t}`);
   $("sum-share").textContent = `Outlier · ${sampleLabel()}\n${lines.join("\n")}`;
   const table = $("sum-table");
@@ -1075,7 +1526,7 @@ function finishParty() {
     body.append(tr);
   });
   table.replaceChildren(head, body);
-  $("sum-next").textContent = S.n ? `Play sample #${S.n + 1}` : "Another fresh sample";
+  $("sum-next").textContent = S.n ? `Play sample #${S.next}` : "Another fresh sample";
   $("copy-note").textContent = "";
   show("summary");
 }
@@ -1147,7 +1598,7 @@ function wire() {
     renderNames();
     $("player-" + (list.length - 1)).focus();
   });
-  $("start-party").addEventListener("click", () => startParty(store.get("partyNext", 1)));
+  $("start-party").addEventListener("click", () => startParty(S.next));
   $("party-fresh").addEventListener("click", () => playFresh("party"));
   $("pass-go").addEventListener("click", showPrompt);
   $("answer-form").addEventListener("submit", (e) => { e.preventDefault(); submitAnswer(); });
@@ -1157,7 +1608,7 @@ function wire() {
   $("pr-next").addEventListener("click", partyNext);
   $("sum-home").addEventListener("click", () => { S.mode = null; renderHome(); show("home"); });
   $("sum-next").addEventListener("click", () => {
-    if (S.mode === "party") { if (S.n) startParty(S.n + 1); else { renderNames(); show("party-setup"); playFresh("party"); } }
+    if (S.mode === "party") { if (S.n) startParty(S.next); else { renderNames(); show("party-setup"); playFresh("party"); } }
     else if (S.n) startSolo(nextSolo());
     else { renderHome(); show("home"); playFresh("solo"); }
   });
@@ -1195,6 +1646,7 @@ function restore(d) {
     mode: d.mode, n: d.n || 0, i: d.i || 0, prompts, results: d.results || [],
     players: d.players || [], turn: d.turn || 0, pending: d.pending || [],
   });
+  Depth.set(S.mode === "solo" ? soloTotal() : 0, true);
   if (S.mode === "party") {
     S.totals = S.players.map(() => 0);
     if (S.results[S.i]) renderPartyReveal(); else showPass(S.turn > 0);
@@ -1204,6 +1656,8 @@ function restore(d) {
 }
 
 function start(data) {
+  S.next = randomSample();
+  Depth.readout($("status-depth"));
   wire();
   renderHist($("example-hist"), ["Apple", "Mango", "Pomegranate", "Lychee", "Rambutan"], 3);
   renderHome();
